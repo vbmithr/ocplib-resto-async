@@ -10,14 +10,16 @@
 
 (** Typed RPC services: client implementation. *)
 
+open Async
+
 module Make (Encoding : Resto.ENCODING) : sig
 
   module Service : (module type of (struct include Resto.MakeService(Encoding) end))
 
   type content_type = (string * string)
-  type raw_content = Cohttp_lwt.Body.t * content_type option
+  type raw_content = Cohttp_async.Body.t * content_type option
   type content =
-    Cohttp_lwt.Body.t * content_type option * Media_type.Make(Encoding).t option
+    Cohttp_async.Body.t * content_type option * Media_type.Make(Encoding).t option
 
   type ('o, 'e) generic_rest_result =
     [ `Ok of 'o option
@@ -36,13 +38,13 @@ module Make (Encoding : Resto.ENCODING) : sig
 
   module type LOGGER = sig
     type request
-    val log_empty_request: Uri.t -> request Lwt.t
+    val log_empty_request: Uri.t -> request Deferred.t
     val log_request:
       ?media:Media_type.Make(Encoding).t -> 'a Encoding.t ->
-      Uri.t -> string -> request Lwt.t
+      Uri.t -> string -> request Deferred.t
     val log_response:
       request -> ?media:Media_type.Make(Encoding).t -> 'a Encoding.t ->
-      Cohttp.Code.status_code -> string Lwt.t Lazy.t -> unit Lwt.t
+      Cohttp.Code.status_code -> string Deferred.t Lazy.t -> unit Deferred.t
   end
 
   type logger = (module LOGGER)
@@ -56,9 +58,9 @@ module Make (Encoding : Resto.ENCODING) : sig
     ?logger:logger ->
     ?headers:(string * string) list ->
     ?accept:Media_type.Make(Encoding).t list ->
-    ?body:Cohttp_lwt.Body.t ->
+    ?body:Cohttp_async.Body.t ->
     ?media:Media_type.Make(Encoding).t ->
-    Uri.t -> (content, content) generic_rest_result Lwt.t
+    Uri.t -> (content, content) generic_rest_result Deferred.t
 
   type ('o, 'e) service_result =
     [ ('o, 'e option) generic_rest_result
@@ -73,7 +75,7 @@ module Make (Encoding : Resto.ENCODING) : sig
     ?headers:(string * string) list ->
     ?base:Uri.t ->
     ([< Resto.meth ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
-    'p -> 'q -> 'i -> (Resto.meth * Uri.t * ('o, 'e) service_result) Lwt.t
+    'p -> 'q -> 'i -> (Resto.meth * Uri.t * ('o, 'e) service_result) Deferred.t
 
   val call_streamed_service:
     Media_type.Make(Encoding).t list ->
@@ -84,6 +86,6 @@ module Make (Encoding : Resto.ENCODING) : sig
     on_chunk: ('o -> unit) ->
     on_close: (unit -> unit) ->
     'p -> 'q -> 'i ->
-    (Resto.meth * Uri.t * (unit -> unit, 'e) service_result) Lwt.t
+    (Resto.meth * Uri.t * (unit -> unit, 'e) service_result) Deferred.t
 
 end

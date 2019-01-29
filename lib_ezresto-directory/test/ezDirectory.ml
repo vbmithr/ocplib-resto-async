@@ -8,6 +8,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Async
 open EzServices
 include EzResto_directory
 
@@ -17,16 +18,16 @@ let rec repeat i json =
 
 let dir = empty let dir =
                   register1 dir repeat_service
-                    (fun i () json -> Lwt.return (`Ok (`A (repeat i json))))
+                    (fun i () json -> return (`Ok (`A (repeat i json))))
 let dir =
   register1 dir add_service
-    (fun i () j -> Lwt.return (`Ok (i+j)))
+    (fun i () j -> return (`Ok (i+j)))
 let dir =
   register2 dir alternate_add_service
-    (fun i j () () -> Lwt.return (`Ok (float_of_int i+.j)))
+    (fun i j () () -> return (`Ok (float_of_int i+.j)))
 let dir =
   register dir alternate_add_service'
-    (fun (((), i),j) () () -> Lwt.return (`Ok (i+ int_of_float j)))
+    (fun (((), i),j) () () -> return (`Ok (i+ int_of_float j)))
 let dir =
   register_describe_directory_service
     dir describe_service

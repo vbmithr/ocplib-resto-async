@@ -8,69 +8,73 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Async
 open Services
 open Directory
 open Resto_directory
-open Lwt.Infix
 
-let () =
-  Lwt_main.run begin
-    allowed_methods dir () ["foo";"3";"repeat"] >>= function
-    | Ok [`POST] -> Lwt.return_unit
-    | _ -> assert false
-  end
+open Alcotest
 
-let () =
-  Lwt_main.run begin
-    allowed_methods dir () ["bar";"3";"4";"add"] >>= function
-    | Ok [`GET;`POST] -> Lwt.return_unit
-    | _ -> assert false
-  end
+let allowed_methods1 () =
+  allowed_methods dir () ["foo";"3";"repeat"] >>= function
+  | Ok [`POST] -> Deferred.unit
+  | _ -> failf "allowed_methods1"
+
+let allowed_methods2 () =
+  allowed_methods dir () ["bar";"3";"4";"add"] >>= function
+  | Ok [`GET;`POST] -> Deferred.unit
+  | _ -> failf "allowed_methods1"
+
+let basic = Alcotest_async.[
+  test_case "allowed_methods1" `Quick allowed_methods1 ;
+  test_case "allowed_methods2" `Quick allowed_methods2 ;
+]
 
 module Test(Request : sig
     val request:
       ('meth, unit, 'params, 'query, 'input, 'output, 'error) Service.t ->
-      'params  -> 'query -> 'input -> [> ('output, 'error) Answer.t ] Lwt.t
+      'params  -> 'query -> 'input -> [> ('output, 'error) Answer.t ] Deferred.t
   end) = struct
 
-  let () =
-    Lwt_main.run begin
-      Request.request describe_service
-        ((), ["foo"; "3"]) { recurse = true } () >>= function
-      | `Ok dir ->
-          Format.printf "@[<v>%a@]@." Resto.Description.pp_print_directory dir ;
-          Lwt.return_unit
-      | _ -> assert false
-    end
+  let one () =
+    Request.request describe_service
+      ((), ["foo"; "3"]) { recurse = true } () >>= function
+    | `Ok dir ->
+        Format.printf "@[<v>%a@]@." Resto.Description.pp_print_directory dir ;
+        Deferred.unit
+    | _ -> fail "one"
 
-  let () =
-    Lwt_main.run begin
-      Request.request describe_service
-        ((), ["bar"; "3" ; "2." ; "add"]) { recurse = false } () >>= function
-      | `Ok dir ->
-          Format.printf "@[<v>%a@]@." Resto.Description.pp_print_directory dir ;
-          Lwt.return_unit ;
-      | _ -> assert false
-    end
+  let two () =
+    Request.request describe_service
+      ((), ["bar"; "3" ; "2." ; "add"]) { recurse = false } () >>= function
+    | `Ok dir ->
+        Format.printf "@[<v>%a@]@." Resto.Description.pp_print_directory dir ;
+        Deferred.unit
+    | _ -> fail "two"
 
-  let () =
-    Lwt_main.run begin
-      Request.request describe_service ((), []) { recurse = true } () >>= function
-      | `Ok dir ->
-          Format.printf "@[<v>%a@]@." Resto.Description.pp_print_directory dir ;
-          Lwt.return_unit ;
-      | _ -> assert false
-    end
+  let three () =
+    Request.request describe_service ((), []) { recurse = true } () >>= function
+    | `Ok dir ->
+        Format.printf "@[<v>%a@]@." Resto.Description.pp_print_directory dir ;
+        Deferred.unit
+    | _ -> fail "three"
 
-  let () =
-    let test service args arg expected =
-      Lwt_main.run (Request.request service args () arg) = (`Ok expected) in
-    assert (test repeat_service ((), 3) (`A []) (`A (repeat 3 (`A [])))) ;
-    assert (test add_service ((), 2) 3 5) ;
-    assert (test alternate_add_service (((), 1), 2.5) () 3.5) ;
-    assert (test real_minus_service1 (((), 2.5), 1) () 1.5) ;
-    assert (test alternate_add_service' (((), 1), 2.) () 3) ;
-    ()
+  let tests =
+    let test service args arg expected () =
+      Request.request service args () arg >>| function
+      | `Ok v when v = expected -> ()
+      | `Ok _
+      | #Answer.t -> failwith "test" in
+    Alcotest_async.[
+      test_case "one" `Quick one ;
+      test_case "two" `Quick two ;
+      test_case "three" `Quick three ;
+      test_case "repeat_service" `Quick (test repeat_service ((), 3) (`A []) (`A (repeat 3 (`A [])))) ;
+      test_case "add_service"  `Quick (test add_service ((), 2) 3 5) ;
+      test_case "alternate_add_service" `Quick (test alternate_add_service (((), 1), 2.5) () 3.5) ;
+      test_case "real_minus_service1" `Quick (test real_minus_service1 (((), 2.5), 1) () 1.5) ;
+      test_case "alternate_add_service'" `Quick (test alternate_add_service' (((), 1), 2.) () 3) ;
+    ]
 
 end
 
@@ -121,7 +125,7 @@ module Faked = Test(struct
           end >>= function
           | `Ok res ->
               let json = Json_encoding.construct s.types.output res in
-              Lwt.return (`Ok (Json_encoding.destruct (Service.output_encoding service) json))
+              return (`Ok (Json_encoding.destruct (Service.output_encoding service) json))
           | _ -> failwith "Unexpected lwt result (1)"
         end
       | _ -> failwith "Unexpected lwt result (2)"
@@ -132,4 +136,9 @@ module Transparent = Test(struct
   end)
 
 let () =
-  Printf.printf "\n### OK Resto ###\n\n%!"
+  Alcotest.run "resto-directory" [
+    "basic", basic ;
+    "faked", Faked.tests ;
+    "transparent", Transparent.tests ;
+  ]
+

@@ -8,8 +8,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Async_kernel
 open Resto
-open Lwt.Infix
 
 open Resto_directory
 module Directory = Resto_directory.Make(Resto_json.Encoding)
@@ -31,7 +31,7 @@ exception Conflict = Directory.Conflict
 
 type directory = unit Directory.directory
 let empty = empty
-let prefix path dir = (prefix path (map (fun _ -> Lwt.return_unit) dir))
+let prefix path dir = (prefix path (map (fun _ -> Deferred.unit) dir))
 let merge = merge
 
 let register d s h = register d s h
@@ -44,7 +44,7 @@ let register5 d s h = register5 d s h
 
 let register_dynamic_directory ?descr dir path builder =
   register_dynamic_directory ?descr dir path
-    (fun p -> builder p >>= fun dir -> Lwt.return (map (fun _ -> Lwt.return_unit) dir))
+    (fun p -> builder p >>= fun dir -> return (map (fun _ -> Deferred.unit) dir))
 
 let register_dynamic_directory1 ?descr root s f =
   register_dynamic_directory ?descr root s Curry.(curry (S Z) f)
@@ -70,7 +70,7 @@ type ('q, 'i, 'o, 'e) types = ('q, 'i, 'o, 'e) Directory.types = {
 type registered_service = Directory.registered_service =
   | Service :
       { types : ('q, 'i, 'o, 'e) types ;
-        handler : ('q -> 'i -> ('o, 'e) Answer.t Lwt.t) ;
+        handler : ('q -> 'i -> ('o, 'e) Answer.t Deferred.t) ;
       } -> registered_service
 
 type lookup_error = Directory.lookup_error

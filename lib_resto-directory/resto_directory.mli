@@ -8,6 +8,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Async_kernel
 open Resto
 
 module Answer : sig
@@ -15,7 +16,7 @@ module Answer : sig
   (** Return type for service handler *)
   type ('o, 'e) t =
     [ `Ok of 'o (* 200 *)
-    | `OkStream of 'o stream (* 200 *)
+    | `OkPipe of 'o Pipe.Reader.t (* 200 *)
     | `Created of string option (* 201 *)
     | `No_content (* 204 *)
     | `Unauthorized of 'e option (* 401 *)
@@ -25,13 +26,8 @@ module Answer : sig
     | `Error of 'e option (* 500 *)
     ]
 
-  and 'a stream = {
-    next: unit -> 'a option Lwt.t ;
-    shutdown: unit -> unit ;
-  }
-
-  val return: 'o -> ('o, 'e) t Lwt.t
-  val return_stream: 'o stream -> ('o, 'e) t Lwt.t
+  val return: 'o -> ('o, 'e) t Deferred.t
+  val return_pipe: 'o Pipe.Reader.t -> ('o, 'e) t Deferred.t
 
 end
 
@@ -61,7 +57,7 @@ module Make (Encoding : ENCODING) : sig
   type registered_service =
     | Service :
         { types : ('q, 'i, 'o, 'e) types ;
-          handler : ('q -> 'i -> ('o, 'e) Answer.t Lwt.t) ;
+          handler : ('q -> 'i -> ('o, 'e) Answer.t Deferred.t) ;
         } -> registered_service
 
   (** Dispatch tree *)
@@ -77,21 +73,21 @@ module Make (Encoding : ENCODING) : sig
   (** Resolve a service. *)
   val lookup:
     'prefix directory -> 'prefix ->
-    meth -> string list -> (registered_service, [> lookup_error ]) result Lwt.t
+    meth -> string list -> (registered_service, [> lookup_error ]) result Deferred.t
 
   val allowed_methods:
     'prefix directory -> 'prefix -> string list ->
-    (meth list, [> lookup_error ]) result Lwt.t
+    (meth list, [> lookup_error ]) result Deferred.t
 
   val transparent_lookup:
     'prefix directory ->
     ('meth, 'prefix, 'params, 'query, 'input, 'output, 'error) Service.t ->
-    'params -> 'query -> 'input -> [> ('output, 'error) Answer.t ] Lwt.t
+    'params -> 'query -> 'input -> [> ('output, 'error) Answer.t ] Deferred.t
 
   (** Empty tree *)
   val empty: 'prefix directory
 
-  val map: ('a -> 'b Lwt.t) -> 'b directory -> 'a directory
+  val map: ('a -> 'b Deferred.t) -> 'b directory -> 'a directory
 
   val prefix: ('pr, 'p) Path.path -> 'p directory -> 'pr directory
   val merge: 'a directory -> 'a directory -> 'a directory
@@ -102,51 +98,51 @@ module Make (Encoding : ENCODING) : sig
   val register:
     'prefix directory ->
     ('meth, 'prefix, 'params, 'query, 'input, 'output, 'error) Service.t ->
-    ('params -> 'query -> 'input -> [< ('output, 'error) Answer.t ] Lwt.t) ->
+    ('params -> 'query -> 'input -> [< ('output, 'error) Answer.t ] Deferred.t) ->
     'prefix directory
 
   (** Registring handler in service tree. Curryfied variant.  *)
   val register0:
     unit directory ->
     ('m, unit, unit, 'q, 'i, 'o, 'e) Service.t ->
-    ('q -> 'i -> [< ('o, 'e) Answer.t ] Lwt.t) ->
+    ('q -> 'i -> [< ('o, 'e) Answer.t ] Deferred.t) ->
     unit directory
 
   val register1:
     'prefix directory ->
     ('m, 'prefix, unit * 'a, 'q , 'i, 'o, 'e) Service.t ->
-    ('a -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Lwt.t) ->
+    ('a -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Deferred.t) ->
     'prefix directory
 
   val register2:
     'prefix directory ->
     ('m, 'prefix, (unit * 'a) * 'b, 'q , 'i, 'o, 'e) Service.t ->
-    ('a -> 'b -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Lwt.t) ->
+    ('a -> 'b -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Deferred.t) ->
     'prefix directory
 
   val register3:
     'prefix directory ->
     ('m, 'prefix, ((unit * 'a) * 'b) * 'c, 'q , 'i, 'o, 'e) Service.t ->
-    ('a -> 'b -> 'c -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Lwt.t) ->
+    ('a -> 'b -> 'c -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Deferred.t) ->
     'prefix directory
 
   val register4:
     'prefix directory ->
     ('m, 'prefix, (((unit * 'a) * 'b) * 'c) * 'd, 'q , 'i, 'o, 'e) Service.t ->
-    ('a -> 'b -> 'c -> 'd -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Lwt.t) ->
+    ('a -> 'b -> 'c -> 'd -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Deferred.t) ->
     'prefix directory
 
   val register5:
     'prefix directory ->
     ('m, 'prefix, ((((unit * 'a) * 'b) * 'c) * 'd) * 'f, 'q , 'i, 'o, 'e) Service.t ->
-    ('a -> 'b -> 'c -> 'd -> 'f -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Lwt.t) ->
+    ('a -> 'b -> 'c -> 'd -> 'f -> 'q -> 'i -> [< ('o, 'e) Answer.t ] Deferred.t) ->
     'prefix directory
 
   (** Registring dynamic subtree. *)
   val register_dynamic_directory:
     ?descr:string ->
     'prefix directory ->
-    ('prefix, 'a) Path.path -> ('a -> 'a directory Lwt.t) ->
+    ('prefix, 'a) Path.path -> ('a -> 'a directory Deferred.t) ->
     'prefix directory
 
   (** Registring dynamic subtree. (Curryfied variant) *)
@@ -154,21 +150,21 @@ module Make (Encoding : ENCODING) : sig
     ?descr:string ->
     'prefix directory ->
     ('prefix, unit * 'a) Path.path ->
-    ('a -> (unit * 'a) directory Lwt.t) ->
+    ('a -> (unit * 'a) directory Deferred.t) ->
     'prefix directory
 
   val register_dynamic_directory2:
     ?descr:string ->
     'prefix directory ->
     ('prefix, (unit * 'a) * 'b) Path.path ->
-    ('a -> 'b -> ((unit * 'a) * 'b) directory Lwt.t) ->
+    ('a -> 'b -> ((unit * 'a) * 'b) directory Deferred.t) ->
     'prefix directory
 
   val register_dynamic_directory3:
     ?descr:string ->
     'prefix directory ->
     ('prefix, ((unit * 'a) * 'b) * 'c) Path.path ->
-    ('a -> 'b -> 'c -> (((unit * 'a) * 'b) * 'c) directory Lwt.t) ->
+    ('a -> 'b -> 'c -> (((unit * 'a) * 'b) * 'c) directory Deferred.t) ->
     'prefix directory
 
   (** Registring a description service. *)
@@ -180,7 +176,7 @@ module Make (Encoding : ENCODING) : sig
   val describe_directory:
     recurse:bool ->
     ?arg:'a ->
-    'a directory -> Encoding.schema Resto.Description.directory Lwt.t
+    'a directory -> Encoding.schema Resto.Description.directory Deferred.t
 
   (**/**)
 

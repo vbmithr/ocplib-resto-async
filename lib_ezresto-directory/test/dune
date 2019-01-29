@@ -1,7 +1,7 @@
 (executable
  (name ezResto_test)
  (flags (:standard -safe-string))
- (libraries ocplib-ezresto-directory lwt.unix))
+ (libraries ocplib-ezresto-directory async alcotest-async))
 
 (alias
  (name runtest_ezresto)
