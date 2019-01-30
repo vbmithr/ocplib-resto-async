@@ -50,8 +50,8 @@ module Make (Encoding : Resto.ENCODING) : sig
   type logger = (module LOGGER)
 
   val null_logger: logger
-  val timings_logger: Format.formatter -> logger
-  val full_logger: Format.formatter -> logger
+  val timings_logger: Logs.src -> logger
+  val full_logger: Logs.src -> logger
 
   val generic_call:
     [< Resto.meth ] ->

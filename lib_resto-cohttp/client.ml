@@ -79,7 +79,7 @@ module Make (Encoding : Resto.ENCODING) = struct
       let log_response = (fun _ ?media:_ _ _ _ -> Deferred.unit)
     end : LOGGER)
 
-  let timings_logger ppf =
+  let timings_logger src =
     (module struct
       type request = string * float
       let log_empty_request uri =
@@ -88,8 +88,7 @@ module Make (Encoding : Resto.ENCODING) = struct
       let log_request ?media:_ _enc uri _body = log_empty_request uri
       let log_response (uri, tzero) ?media:_ _enc _code _body =
         let time = Unix.gettimeofday () -. tzero in
-        Format.fprintf ppf "Request to %s succeeded in %gs@." uri time ;
-        Deferred.unit
+        Logs_async.info ~src (fun m -> m "Request to %s succeeded in %gs@." uri time)
     end : LOGGER)
 
   let faked_media = {
@@ -100,7 +99,7 @@ module Make (Encoding : Resto.ENCODING) = struct
     destruct = (fun _ -> assert false) ;
   }
 
-  let full_logger ppf =
+  let full_logger src =
     (module struct
       let cpt = ref 0
       type request = int * string
@@ -108,19 +107,21 @@ module Make (Encoding : Resto.ENCODING) = struct
         let id = !cpt in
         let uri = Uri.to_string uri in
         incr cpt ;
-        Format.fprintf ppf ">>>>%d: %s@." id uri ;
+        Logs_async.info ~src (fun m -> m ">>>>%d: %s@." id uri) >>= fun () ->
         return (id, uri)
       let log_request ?(media = faked_media) enc uri body =
         let id = !cpt in
         let uri = Uri.to_string uri in
         incr cpt ;
-        Format.fprintf ppf "@[<v 2>>>>>%d: %s@,%a@]@." id uri (media.pp enc) body ;
+        Logs_async.info ~src begin fun m ->
+          m "@[<v 2>>>>>%d: %s@,%a@]@." id uri (media.pp enc) body
+        end >>= fun () ->
         return (id, uri)
       let log_response (id, _uri) ?(media = faked_media) enc code body =
         Lazy.force body >>= fun body ->
-        Format.fprintf ppf "@[<v 2><<<<%d: %s@,%a@]@."
-          id (Cohttp.Code.string_of_status code) (media.pp enc) body ;
-        Deferred.unit
+        Logs_async.info ~src begin fun m -> m "@[<v 2><<<<%d: %s@,%a@]@."
+            id (Cohttp.Code.string_of_status code) (media.pp enc) body
+        end
     end : LOGGER)
 
   let find_media received media_types =
