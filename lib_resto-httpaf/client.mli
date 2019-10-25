@@ -17,9 +17,9 @@ module Make (Encoding : Resto.ENCODING) : sig
   module Service : (module type of (struct include Resto.MakeService(Encoding) end))
 
   type content_type = (string * string)
-  type raw_content = Cohttp_async.Body.t * content_type option
+  type raw_content = [ `write ] Httpaf.Body.t * content_type option
   type content =
-    Cohttp_async.Body.t * content_type option * Media_type.Make(Encoding).t option
+    [ `write ] Httpaf.Body.t * content_type option * Media_type.Make(Encoding).t option
 
   type ('o, 'e) generic_rest_result =
     [ `Ok of 'o option
@@ -58,7 +58,7 @@ module Make (Encoding : Resto.ENCODING) : sig
     ?logger:logger ->
     ?headers:(string * string) list ->
     ?accept:Media_type.Make(Encoding).t list ->
-    ?body:Cohttp_async.Body.t ->
+    ?body:([ `write ] Httpaf.Body.t -> unit) ->
     ?media:Media_type.Make(Encoding).t ->
     Uri.t -> (content, content) generic_rest_result Deferred.t
 

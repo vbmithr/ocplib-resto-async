@@ -8,26 +8,21 @@
 (*                                                                        *)
 (**************************************************************************)
 
-module Make (Encoding : Resto.ENCODING) : sig
+(** Typed RPC services: server implementation. *)
 
-  type t = {
-    name: Cohttp.Accept.media_range ;
-    q: int option ;
-    pp: 'a. 'a Encoding.t -> Format.formatter -> string -> unit ;
-    construct: 'a. 'a Encoding.t -> 'a -> string ;
-    destruct: 'a. 'a Encoding.t -> string -> ('a, string) result ;
-  }
+open Async
 
-  val name: t -> string
+module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) : sig
 
-  val has_complete_media: t list -> bool
-  val first_complete_media: t list -> ((string * string) * t) option
+  (** A handle on the server worker. *)
+  type ('a, 'listening_on) server
+    constraint 'a = [< Async_unix.Socket.Address.t ]
 
-  val find_media: (string * string) -> t list -> t option
-
-  val resolve_accept_header: t list -> string option -> (string * t) option
-
-  val accept_header: t list -> string
-  val acceptable_encoding: t list -> string
-
+  (** Promise a running RPC server.*)
+  val launch :
+    ?cors:Cors.t ->
+    media_types:Media_type.Make(Encoding).t list ->
+    unit Resto_directory.Make(Encoding).t ->
+    (Socket.Address.t, 'listening_on) Tcp.Where_to_listen.t ->
+    (Socket.Address.t, 'listening_on) server Deferred.t
 end

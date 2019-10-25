@@ -18,5 +18,6 @@ depends: [
   "ocamlfind" {build}
   "dune" {build}
   "ocplib-resto-directory" {= "dev" }
-  "cohttp-lwt-unix" { >= "1.0.0" }
+  "httpaf"       { >= "0.6.0" }
+  "httpaf-async" { >= "0.6.0" }
 ]

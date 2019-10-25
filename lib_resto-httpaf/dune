@@ -1,0 +1,11 @@
+(library
+ (name resto_httpaf)
+ (public_name ocplib-resto-httpaf)
+ (libraries
+   cohttp
+   ocplib-resto-directory
+   async
+   logs-async
+   httpaf
+   httpaf-async)
+ (flags (:standard -safe-string)))

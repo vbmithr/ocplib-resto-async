@@ -31,8 +31,8 @@ type t = {
 val default: t
 
 val add_allow_origin:
-  Cohttp.Header.t -> t -> string option -> Cohttp.Header.t
+  Httpaf.Headers.t -> t -> string option -> Httpaf.Headers.t
 
 val add_headers:
-  Cohttp.Header.t -> t -> string option -> Cohttp.Header.t
+  Httpaf.Headers.t -> t -> string option -> Httpaf.Headers.t
 

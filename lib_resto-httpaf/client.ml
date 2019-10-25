@@ -33,8 +33,8 @@ module Make (Encoding : Resto.ENCODING) = struct
   module Service = Resto.MakeService(Encoding)
 
   type content_type = (string * string)
-  type raw_content = Cohttp_async.Body.t * content_type option
-  type content = Cohttp_async.Body.t * content_type option * Media_type.t option
+  type raw_content = [ `write ] Httpaf.Body.t * content_type option
+  type content = [ `write ] Httpaf.Body.t * content_type option * Media_type.t option
 
   type ('o, 'e) generic_rest_result =
     [ `Ok of 'o option
@@ -143,6 +143,30 @@ module Make (Encoding : Resto.ENCODING) = struct
       string Deferred.t Lazy.t -> unit Deferred.t ;
   }
 
+  let rec call_and_retry_on_502 attempt delay =
+    Httpaf_async.Client.request
+      ~headers
+      (meth :> Code.meth) ~body uri >>= fun (response, ansbody) ->
+    let status = Response.status response in
+    match status with
+    | `Bad_gateway ->
+        let log_ansbody = clone_body ansbody in
+        log.log ~media:faked_media Encoding.untyped status
+          (lazy (Cohttp_async.Body.to_string log_ansbody >>= fun text ->
+                 return @@ Format.sprintf
+                   "Attempt number %d/10, will retry after %g seconds.\n\
+                    Original body follows.\n\
+                    %s"
+                   attempt (Core_kernel.Time_ns.Span.to_sec delay) text)) >>= fun () ->
+        if attempt >= 10 then
+          return (response, ansbody)
+        else
+          let open Core_kernel in
+          Clock_ns.after delay >>= fun () ->
+          call_and_retry_on_502 (attempt + 1) Time_ns.Span.(delay + of_int_ms 100)
+    | _ ->
+        return (response, ansbody)
+
   let internal_call meth (log : log) ?(headers = []) ?accept ?body ?media uri : (content, content) generic_rest_result Deferred.t =
     let headers = List.fold_left (fun headers (header, value) ->
         let header = String.lowercase_ascii header in
@@ -156,7 +180,7 @@ module Make (Encoding : Resto.ENCODING) = struct
         (Header.init ()) headers in
     let body, headers =
       match body, media with
-      | None, _ -> Cohttp_async.Body.empty, headers
+      | None, _ -> Httpaf.Body.close_writer, headers
       | Some body, None ->
           body, headers
       | Some body, Some media ->
@@ -167,29 +191,6 @@ module Make (Encoding : Resto.ENCODING) = struct
       | Some ranges ->
           Header.add headers "accept" (Media_type.accept_header ranges) in
     Monitor.try_with ~extract_exn:true begin fun () ->
-      let rec call_and_retry_on_502 attempt delay =
-        Cohttp_async.Client.call
-          ~headers
-          (meth :> Code.meth) ~body uri >>= fun (response, ansbody) ->
-        let status = Response.status response in
-        match status with
-        | `Bad_gateway ->
-            let log_ansbody = clone_body ansbody in
-            log.log ~media:faked_media Encoding.untyped status
-              (lazy (Cohttp_async.Body.to_string log_ansbody >>= fun text ->
-                     return @@ Format.sprintf
-                       "Attempt number %d/10, will retry after %g seconds.\n\
-                        Original body follows.\n\
-                        %s"
-                       attempt (Core_kernel.Time_ns.Span.to_sec delay) text)) >>= fun () ->
-            if attempt >= 10 then
-              return (response, ansbody)
-            else
-              let open Core_kernel in
-              Clock_ns.after delay >>= fun () ->
-              call_and_retry_on_502 (attempt + 1) Time_ns.Span.(delay + of_int_ms 100)
-        | _ ->
-            return (response, ansbody) in
       call_and_retry_on_502 1 Core_kernel.Time_ns.Span.zero >>= fun (response, ansbody) ->
       let headers = Response.headers response in
       let media_name =

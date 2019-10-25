@@ -59,11 +59,11 @@ let add_allow_origin headers cors origin_header =
       match find_matching_origin cors.allowed_origins origin with
       | None -> headers
       | Some allowed_origin ->
-          Cohttp.Header.add headers
+          Httpaf.Headers.add headers
             "Access-Control-Allow-Origin" allowed_origin
 
 let add_headers headers cors origin_header =
   let cors_headers =
-    Cohttp.Header.add_multi headers
-      "Access-Control-Allow-Headers" cors.allowed_headers in
+    Httpaf.Headers.add_multi headers
+      ["Access-Control-Allow-Headers", cors.allowed_headers] in
   add_allow_origin cors_headers cors origin_header

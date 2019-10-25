@@ -30,13 +30,12 @@ let pp_print_addr ppf a =
 
 module AddressMap = Map.Make(struct
     include Socket.Address.Blocking_sexp
-    let compare = Pervasives.compare
+    let compare = Stdlib.compare
   end)
 
 module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
 
-  open Cohttp
-
+  open Httpaf
   module Service = Resto.MakeService(Encoding)
   module Directory = Resto_directory.Make(Encoding)
 
@@ -48,7 +47,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     cors : Cors.t ;
     media_types : Media_type.t list ;
     default_media_type : string * Media_type.t ;
-    mutable server : ('a, 'listening_on) Cohttp_async.Server.t Deferred.t ;
+    mutable server : ('a, 'listening_on) Tcp.Server.t Deferred.t ;
   }
 
   let create_pipe server addr to_string s =
@@ -61,22 +60,25 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     | Ok x -> f x
     | Error err -> return (Error err)
 
-  let callback server addr req body =
+  let callback server addr { Request.meth; target; version; headers } body =
     (* FIXME: check inbound adress *)
-    let uri = Request.uri req in
+    let uri = Uri.of_string target in
     let path = Uri.pct_decode (Uri.path uri) in
     Log.info begin fun m ->
       m "(%a) receive request to %s" pp_print_addr addr path
     end >>= fun () ->
     let path = Utils.split_path path in
-    let req_headers = Request.headers req in
     begin
-      match Request.meth req with
-      | #Resto.meth as meth -> begin
+      match meth with
+      | `DELETE | `GET | `POST | `PUT | `Other "PATCH" as meth -> begin
+          let meth = match meth with
+            | `Other "PATCH" -> `PATCH
+            | `Other _ -> assert false
+            | #Resto.meth as m -> m in
           Directory.lookup server.root ()
             meth path >>=? fun (Directory.Service s) ->
           begin
-            match Header.get req_headers "content-type" with
+            match Headers.get headers "content-type" with
             | None -> Deferred.Result.return (snd server.default_media_type)
             | Some content_type ->
                 match Utils.split_path content_type with
@@ -96,7 +98,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
               (Media_type.name input_media_type)
           end >>= fun () ->
           begin
-            match Header.get req_headers "accept" with
+            match Headers.get headers "accept" with
             | None -> Deferred.Result.return server.default_media_type
             | Some accepted ->
                 match Media_type.resolve_accept_header
@@ -335,7 +337,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
           let body = Cohttp_async.Body.of_string (Printexc.to_string exn) in
           return (Response.make ~status ~headers (), body)
     in
-    Cohttp_async.Server.create
+    Httpaf_async.create
       ?mode
       ~on_handler_error:(`Call on_handler_error)
       host callback >>= fun server ->

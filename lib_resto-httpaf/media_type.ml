@@ -13,7 +13,7 @@ module Make (Encoding : Resto.ENCODING) = struct
   open Cohttp
 
   type t = {
-    name: Cohttp.Accept.media_range ;
+    name: Accept.media_range ;
     q: int option ;
     pp: 'a. 'a Encoding.t -> Format.formatter -> string -> unit ;
     construct: 'a. 'a Encoding.t -> 'a -> string ;
@@ -54,9 +54,8 @@ module Make (Encoding : Resto.ENCODING) = struct
     match media.name with
     | AnyMedia | AnyMediaSubtype _ -> false
     | MediaType (type_, subtype) ->
-        let open Accept in
         match range with
-        | AnyMedia                     -> true
+        | Accept.AnyMedia       -> true
         | AnyMediaSubtype type_'       -> type_' = type_
         | MediaType (type_', subtype') -> type_' = type_ && subtype' = subtype
 
