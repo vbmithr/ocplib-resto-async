@@ -150,10 +150,6 @@ module Make (Encoding : Resto.ENCODING) = struct
     Ivar.read read_done >>| fun () ->
     Bigbuffer.contents buf
 
-  let write_body body wrbody = match body with
-    | `Direct bodystr -> Body.write_string wrbody bodystr
-    | `Stream body_f -> body_f wrbody
-
   let core_iovecs_of_iovecs iovecs =
     let q = Queue.create () in
     let len = List.fold_left iovecs ~init:0 ~f:begin fun a ({ Faraday.buffer; off=pos; len }) ->
@@ -222,52 +218,52 @@ module Make (Encoding : Resto.ENCODING) = struct
                       %s"
                      attempt Time_ns.Span.pp delay ansbody)) >>= fun () ->
           if attempt >= nb_attempts then
-            return (response, `Read ansbody)
+            Deferred.Result.fail (response, ansbody)
           else
             Clock_ns.after delay >>= fun () ->
             inner (succ attempt)
       | _ ->
-          return (response, `Body ansbody) in
+          Deferred.Result.return (response, ansbody) in
     inner 1
 
-  let process_response media (({ version; status; reason; headers }:Response.t), ansbody) =
-    let media_name =
-      match Headers.get headers "content-type" with
-      | None -> None
-      | Some s ->
-          match Utils.split_path s with
-          | [x ; y] -> Some (x, y)
-          | _      -> None (* ignored invalid *) in
-    let media =
-      match accept with
-      | None -> None
-      | Some media_types -> find_media media_name media_types in
-    match status with
-    | `OK -> return (`Ok (Some (ansbody, media_name, media)))
-    | `No_content -> return (`Ok None)
-    | `Created ->
-        (* TODO handle redirection ?? *)
-        failwith "Resto_cohttp_client.generic_json_call: unimplemented"
-    | `Unauthorized -> return (`Unauthorized (ansbody, media_name, media))
-    | `Forbidden -> return (`Forbidden (ansbody, media_name, media))
-    | `Not_found -> return (`Not_found (ansbody, media_name, media))
-    | `Conflict -> return (`Conflict (ansbody, media_name, media))
-    | `Internal_server_error ->
-        if media_name = Some ("text", "ocaml.exception") then
-          return (`OCaml_exception ansbody)
-        else
-          return (`Error (ansbody, media_name, media))
-    | `Bad_request ->
-        return (`Bad_request ansbody)
-    | `Method_not_allowed ->
-        let allowed = Headers.get_multi headers "accept" in
-        return (`Method_not_allowed allowed)
-    | `Unsupported_media_type ->
-        return  `Unsupported_media_type
-    | `Not_acceptable ->
-        return (`Not_acceptable ansbody)
-    | code ->
-        return (`Unexpected_status_code (code, (ansbody, media_name, media)))
+  let process_response ?accept = function
+    | Error (_, msg) -> return (`Bad_request msg)
+    | Ok ({ Response.status; headers; _ }, (ansbody : [`read] Body.t)) ->
+        let media_name =
+          match Headers.get headers "content-type" with
+          | None -> None
+          | Some s ->
+              match Utils.split_path s with
+              | [x ; y] -> Some (x, y)
+              | _      -> None (* ignored invalid *) in
+        let media =
+          match accept with
+          | None -> None
+          | Some media_types -> find_media media_name media_types in
+        match status with
+        | `OK -> return (`Ok (Some (ansbody, media_name, media)))
+        | `No_content -> return (`Ok None)
+        | #Status.t as status ->
+            read_answer_body ansbody >>= fun msg ->
+            match status with
+            | `Created ->
+                (* TODO handle redirection ?? *)
+                failwith "Resto_cohttp_client.generic_json_call: unimplemented"
+            | `Unauthorized -> return (`Unauthorized (ansbody, media_name, media))
+            | `Forbidden -> return (`Forbidden (ansbody, media_name, media))
+            | `Not_found -> return (`Not_found (ansbody, media_name, media))
+            | `Conflict -> return (`Conflict (ansbody, media_name, media))
+            | `Internal_server_error ->
+                if media_name = Some ("text", "ocaml.exception") then
+                  return (`OCaml_exception msg)
+                else
+                  return (`Error (ansbody, media_name, media))
+            | `Method_not_allowed ->
+                let allowed = Headers.get_multi headers "accept" in
+                return (`Method_not_allowed allowed)
+            | `Unsupported_media_type -> return  `Unsupported_media_type
+            | `Not_acceptable -> return (`Not_acceptable msg)
+            |  code -> return (`Unexpected_status_code (code, (ansbody, media_name, media)))
 
   let fold_hdrs header value headers =
     let header = String.lowercase header in
@@ -286,7 +282,7 @@ module Make (Encoding : Resto.ENCODING) = struct
         ~f:(fun ranges -> Headers.add headers "accept" (Media_type.accept_header ranges)) in
     Monitor.try_with ~extract_exn:true begin fun () ->
       call_and_retry_on_502 ?body_f log { req with headers } >>=
-      process_response media
+      process_response ?accept
     end >>= function
     | Ok v -> return v
     | Error exn -> begin
@@ -295,13 +291,12 @@ module Make (Encoding : Resto.ENCODING) = struct
           | Unix.Unix_error (e, _, _) -> Sexp.to_string (Unix.Error.sexp_of_t e)
           | Failure msg -> msg
           | Invalid_argument msg -> msg
-          | e -> Printexc.to_string e in
+          | e -> Exn.to_string e in
         return (`Connection_failed msg)
       end
 
   let handle_error log service (body, media_name, media) status f =
-    Cohttp_async.Body.is_empty body >>= fun empty ->
-    if empty then
+    if Body.is_closed body then
       log.log Encoding.untyped status (lazy (return "")) >>= fun () ->
       return (f None)
     else
@@ -309,7 +304,7 @@ module Make (Encoding : Resto.ENCODING) = struct
       | None ->
           return (`Unexpected_error_content_type (body, media_name))
       | Some media ->
-          Cohttp_async.Body.to_string body >>= fun body ->
+          read_answer_body body >>= fun body ->
           let error = Service.error_encoding service in
           log.log ~media error status (lazy (return body)) >>= fun () ->
           match media.Media_type.destruct error body with
@@ -335,20 +330,28 @@ module Make (Encoding : Resto.ENCODING) = struct
       | Service.Input input ->
           let body = media.Media_type.construct input body in
           Logger.log_request ~media input uri body >>= fun log_request ->
-          return (Some (Cohttp_async.Body.of_string body),
+          return (Some (fun r -> Body.write_string r body),
                   Some media,
                   log_request)
     end >>= fun (body, media, log_request) ->
     let log = { log = fun ?media -> Logger.log_response log_request ?media } in
     return (log, meth, uri, body, media)
 
+  let httpaf_meth_of_meth = function
+    | `PATCH -> `Other "PATCH"
+    | `DELETE -> `DELETE
+    | `GET -> `GET
+    | `POST -> `POST
+    | `PUT -> `PUT
+
   let call_service media_types
       ?logger ?headers ?base service params query body =
-    prepare
-      media_types ?logger ?base
-      service params query body >>= fun (log, meth, uri, body, media) ->
+    prepare media_types ?logger
+      ?base service params query body >>= fun (log, meth, uri, body_f, media) ->
+    let req =
+      Request.create ?headers (httpaf_meth_of_meth meth) (Uri.path_and_query uri) in
     begin
-      internal_call meth log ?headers ~accept:media_types ?body ?media uri >>= function
+      internal_call log ~accept:media_types ?body_f ?media req >>= function
       | `Ok None ->
           log.log Encoding.untyped `No_content (lazy (return "")) >>= fun () ->
           return (`Ok None)
@@ -357,7 +360,7 @@ module Make (Encoding : Resto.ENCODING) = struct
           | None ->
               return (`Unexpected_content_type (body, media_name))
           | Some media ->
-              Cohttp_async.Body.to_string body >>= fun body ->
+              read_answer_body body >>= fun body ->
               let output = Service.output_encoding service in
               log.log ~media output `OK (lazy (return body)) >>= fun () ->
               match media.destruct output body with
@@ -389,44 +392,37 @@ module Make (Encoding : Resto.ENCODING) = struct
       ?logger ?headers ?base service ~on_chunk ~on_close params query body =
     prepare
       media_types ?logger ?base
-      service params query body >>= fun (log, meth, uri, body, media) ->
+      service params query body >>= fun (log, meth, uri, body_f, media) ->
     begin
-      internal_call meth log ?headers ~accept:media_types ?body ?media uri >>= function
+      let req =
+        Request.create ?headers (httpaf_meth_of_meth meth) (Uri.path_and_query uri) in
+      internal_call log ~accept:media_types ?body_f ?media req >>= function
       | `Ok None ->
           on_close () ;
           log.log Encoding.untyped `No_content (lazy (return "")) >>= fun () ->
           return (`Ok None)
       | `Ok (Some (body, media_name, media)) -> begin
           match media with
-          | None ->
-              return (`Unexpected_content_type (body, media_name))
+          | None -> return (`Unexpected_content_type (body, media_name))
           | Some media ->
-              let stream = Cohttp_async.Body.to_pipe body in
-              Pipe.read stream >>= function
-              | `Eof ->
-                  on_close () ;
-                  return (`Ok None)
-              | `Ok chunk ->
-                  let buffer = Buffer.create 2048 in
-                  let output = Service.output_encoding service in
-                  let rec loop = function
-                    | `Eof -> on_close () ; Deferred.unit
-                    | `Ok chunk ->
-                        Buffer.add_string buffer chunk ;
-                        let data = Buffer.contents buffer in
-                        log.log ~media output
-                          `OK (lazy (return chunk)) >>= fun () ->
-                        match media.destruct output data with
-                        | Ok body ->
-                            Buffer.reset buffer ;
-                            on_chunk body ;
-                            Pipe.read stream >>= loop
-                        | Error _msg ->
-                            Pipe.read stream >>= loop in
-                  don't_wait_for (loop (`Ok chunk)) ;
-                  return (`Ok (Some (fun () ->
-                      don't_wait_for (Pipe.drain stream) ;
-                      ())))
+              let buffer = Bigbuffer.create 2048 in
+              let output = Service.output_encoding service in
+              let eof = Ivar.create () in
+              Body.schedule_read body
+                ~on_eof:(fun () -> on_close (); Ivar.fill eof ())
+                ~on_read:begin fun buf ~off ~len ->
+                  let chunk = Bigstring.sub_shared buf ~pos:off ~len in
+                  Bigbuffer.add_bigstring buffer chunk ;
+                  let data = Bigbuffer.contents buffer in
+                  don't_wait_for @@
+                  log.log ~media output `OK (lazy (return (Bigstring.to_string chunk)));
+                  match media.destruct output data with
+                  | Ok body ->
+                      Bigbuffer.reset buffer ;
+                      on_chunk body ;
+                  | Error _msg -> ()
+                end ;
+              Ivar.read eof >>| fun () -> `Ok (Some ())
         end
       | `Conflict body ->
           handle_error log service body `Conflict (fun v -> `Conflict v)
@@ -448,17 +444,17 @@ module Make (Encoding : Resto.ENCODING) = struct
     end >>= fun ans ->
     return (meth, uri, ans)
 
-  let generic_call meth ?(logger = null_logger) ?headers ?accept ?body ?media uri =
+  let generic_call meth ?(logger = null_logger) ?headers ?accept ?body_f ?media uri =
     let module Logger = (val logger) in
-    begin match body with
+    begin match body_f with
       | None ->
           Logger.log_empty_request uri
-      | Some (`Stream _) ->
+      | Some _ ->
           Logger.log_request Encoding.untyped uri "<stream>"
-      | Some (`Direct body) ->
-          Logger.log_request ?media Encoding.untyped uri body
     end >>= fun log_request ->
     let log = { log = fun ?media -> Logger.log_response log_request ?media } in
-    internal_call meth log ?headers ?accept ?body ?media uri
+    let meth = httpaf_meth_of_meth meth in
+    let req = Request.create ?headers meth (Uri.path_and_query uri) in
+    internal_call log ?accept ?body_f ?media req
 
 end

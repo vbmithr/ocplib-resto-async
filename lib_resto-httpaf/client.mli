@@ -20,8 +20,7 @@ module Make (Encoding : Resto.ENCODING) : sig
 
   type content_type = (string * string)
   type raw_content = [ `read ] Body.t * content_type option
-  type content =
-    [ `read ] Body.t * content_type option * Media_type.Make(Encoding).t option
+  type content = [ `read ] Body.t * content_type option * Media_type.Make(Encoding).t option
 
   type ('o, 'e) generic_rest_result =
     [ `Ok of 'o option
@@ -46,7 +45,7 @@ module Make (Encoding : Resto.ENCODING) : sig
       Uri.t -> string -> request Deferred.t
     val log_response:
       request -> ?media:Media_type.Make(Encoding).t -> 'a Encoding.t ->
-      Cohttp.Code.status_code -> string Deferred.t Lazy.t -> unit Deferred.t
+      Status.t -> string Deferred.t Lazy.t -> unit Deferred.t
   end
 
   type logger = (module LOGGER)
@@ -58,9 +57,9 @@ module Make (Encoding : Resto.ENCODING) : sig
   val generic_call:
     [< Resto.meth ] ->
     ?logger:logger ->
-    ?headers:(string * string) list ->
+    ?headers:Headers.t ->
     ?accept:Media_type.Make(Encoding).t list ->
-    ?body:([`Direct of string | `Stream of ([ `write ] Httpaf.Body.t -> unit)]) ->
+    ?body_f:([ `write ] Body.t -> unit) ->
     ?media:Media_type.Make(Encoding).t ->
     Uri.t -> (content, content) generic_rest_result Deferred.t
 
@@ -74,7 +73,7 @@ module Make (Encoding : Resto.ENCODING) : sig
   val call_service:
     Media_type.Make(Encoding).t list ->
     ?logger:logger ->
-    ?headers:(string * string) list ->
+    ?headers:Headers.t ->
     ?base:Uri.t ->
     ([< Resto.meth ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
     'p -> 'q -> 'i -> (Resto.meth * Uri.t * ('o, 'e) service_result) Deferred.t
@@ -82,12 +81,12 @@ module Make (Encoding : Resto.ENCODING) : sig
   val call_streamed_service:
     Media_type.Make(Encoding).t list ->
     ?logger:logger ->
-    ?headers:(string * string) list ->
+    ?headers:Headers.t ->
     ?base:Uri.t ->
     ([< Resto.meth ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
     on_chunk: ('o -> unit) ->
     on_close: (unit -> unit) ->
     'p -> 'q -> 'i ->
-    (Resto.meth * Uri.t * (unit -> unit, 'e) service_result) Deferred.t
+    (Resto.meth * Uri.t * (unit, 'e) service_result) Deferred.t
 
 end
