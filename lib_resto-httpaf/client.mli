@@ -14,12 +14,14 @@ open Async
 
 module Make (Encoding : Resto.ENCODING) : sig
 
+  open Httpaf
+
   module Service : (module type of (struct include Resto.MakeService(Encoding) end))
 
   type content_type = (string * string)
-  type raw_content = [ `write ] Httpaf.Body.t * content_type option
+  type raw_content = [ `read ] Body.t * content_type option
   type content =
-    [ `write ] Httpaf.Body.t * content_type option * Media_type.Make(Encoding).t option
+    [ `read ] Body.t * content_type option * Media_type.Make(Encoding).t option
 
   type ('o, 'e) generic_rest_result =
     [ `Ok of 'o option
@@ -32,7 +34,7 @@ module Make (Encoding : Resto.ENCODING) : sig
     | `Method_not_allowed of string list
     | `Unsupported_media_type
     | `Not_acceptable of string
-    | `Unexpected_status_code of Cohttp.Code.status_code * content
+    | `Unexpected_status_code of Status.t * content
     | `Connection_failed of string
     | `OCaml_exception of string ]
 
@@ -58,7 +60,7 @@ module Make (Encoding : Resto.ENCODING) : sig
     ?logger:logger ->
     ?headers:(string * string) list ->
     ?accept:Media_type.Make(Encoding).t list ->
-    ?body:([ `write ] Httpaf.Body.t -> unit) ->
+    ?body:([`Direct of string | `Stream of ([ `write ] Httpaf.Body.t -> unit)]) ->
     ?media:Media_type.Make(Encoding).t ->
     Uri.t -> (content, content) generic_rest_result Deferred.t
 

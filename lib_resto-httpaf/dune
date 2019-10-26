@@ -2,6 +2,7 @@
  (name resto_httpaf)
  (public_name ocplib-resto-httpaf)
  (libraries
+   async-uri
    cohttp
    ocplib-resto-directory
    async
