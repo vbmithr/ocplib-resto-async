@@ -55,12 +55,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     server.streams <- AddressMap.add addr stream server.streams ;
     stream
 
-  let (>>=?) m f =
-    m >>= function
-    | Ok x -> f x
-    | Error err -> return (Error err)
-
-  let callback server addr { Request.meth; target; version; headers } body =
+  let callback server addr { Request.meth; target; headers; _ } body =
     (* FIXME: check inbound adress *)
     let uri = Uri.of_string target in
     let path = Uri.pct_decode (Uri.path uri) in
@@ -288,10 +283,11 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
   (* Promise a running RPC server. *)
 
   let launch
+      ?max_connections ?max_accepts_per_batch
+      ?backlog ?socket ?config
       ?(cors = Cors.default)
-      ?mode
       ~media_types
-      root host =
+      root listen_on =
     let default_media_type =
       match Media_type.first_complete_media media_types with
       | None -> invalid_arg "RestoCohttp.launch(empty media type list)"
@@ -320,28 +316,31 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
      *       exit 1
      *   | Unix.Unix_error (ECONNRESET, _, _)
      *   | Unix.Unix_error (EPIPE, _, _)  -> ()
-     *   | exn -> !Lwt.async_exception_hook exn *)
-    and callback ~body socket req =
-      Monitor.try_with ~extract_exn:true
-        (fun () -> callback t socket req body) >>= function
-      | Ok r -> return r
-      (* | Error Not_found ->
-       *     let status = `Not_found in
-       *     let body = Cohttp_async.Body.empty in
-       *     return (Response.make ~status (), body) *)
-      | Error exn ->
-          let headers = Header.init () in
-          let headers =
-            Header.add headers "content-type" "text/ocaml.exception" in
-          let status = `Internal_server_error in
-          let body = Cohttp_async.Body.of_string (Printexc.to_string exn) in
-          return (Response.make ~status ~headers (), body)
+     *   | exn -> !Lwt.async_exception_hook exn
+     * and callback ~body socket req =
+     *   Monitor.try_with ~extract_exn:true
+     *     (fun () -> callback t socket req body) >>= function
+     *   | Ok r -> return r
+     *   | Error Not_found ->
+     *       let status = `Not_found in
+     *       let body = Cohttp_async.Body.empty in
+     *       return (Response.make ~status (), body)
+     *   | Error exn ->
+     *       let headers = Header.init () in
+     *       let headers =
+     *         Header.add headers "content-type" "text/ocaml.exception" in
+     *       let status = `Internal_server_error in
+     *       let body = Cohttp_async.Body.of_string (Printexc.to_string exn) in
+     *       return (Response.make ~status ~headers (), body) *)
     in
-    Httpaf_async.create
-      ?mode
+    let request_handler _ _ = () in
+    let error_handler _ ?request:_ _ _ = () in
+    Tcp.Server.create_sock
+      ?max_connections ?max_accepts_per_batch ?backlog ?socket
       ~on_handler_error:(`Call on_handler_error)
-      host callback >>= fun server ->
-    Ivar.fill serv_ivar server ;
-    return t
+      listen_on begin fun addr s ->
+      Httpaf_async.Server.create_connection_handler
+        ?config ~request_handler ~error_handler addr s
+    end
 
 end

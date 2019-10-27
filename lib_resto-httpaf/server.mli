@@ -20,6 +20,10 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) : sig
 
   (** Promise a running RPC server.*)
   val launch :
+    ?max_connections:int ->
+    ?max_accepts_per_batch:int ->
+    ?backlog:int ->
+    ?socket:([ `Unconnected ], [< Socket.Address.t ] as 'b) Socket.t ->
     ?cors:Cors.t ->
     media_types:Media_type.Make(Encoding).t list ->
     unit Resto_directory.Make(Encoding).t ->
