@@ -43,3 +43,16 @@ let split_path path =
     else
       do_component acc i (j + 1) in
   do_slashes [] 0
+
+open Core
+open Async
+
+let read_body body =
+  let buf = Bigbuffer.create 512 in
+  let read_done = Ivar.create () in
+  Httpaf.Body.schedule_read body ~on_eof:(Ivar.fill read_done)
+    ~on_read:begin fun b ~off:pos ~len ->
+      Bigbuffer.add_bigstring buf (Bigstring.sub_shared b ~pos ~len)
+    end ;
+  Ivar.read read_done >>| fun () ->
+  Bigbuffer.contents buf

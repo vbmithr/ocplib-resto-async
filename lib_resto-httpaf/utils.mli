@@ -24,3 +24,7 @@
 (*****************************************************************************)
 
 val split_path: string -> string list
+
+open Async
+
+val read_body: [`read] Httpaf.Body.t -> string Deferred.t

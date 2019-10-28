@@ -9,6 +9,7 @@
 (**************************************************************************)
 
 open Async_kernel
+open Httpaf
 open Resto
 
 let map_option f = function
@@ -73,7 +74,7 @@ module Make (Encoding : ENCODING) = struct
     | DynamicTail of Arg.descr
 
   type conflict =
-    | CService of meth
+    | CService of Method.t
     | CDir
     | CBuilder
     | CTail
@@ -86,7 +87,7 @@ module Make (Encoding : ENCODING) = struct
 
   type lookup_error =
     [ `Not_found (* 404 *)
-    | `Method_not_allowed of meth list (* 405 *)
+    | `Method_not_allowed of Method.t list (* 405 *)
     | `Cannot_parse_path of string list * Arg.descr * string (* 400 *)
     ]
 
@@ -122,7 +123,7 @@ module Make (Encoding : ENCODING) = struct
         } -> registered_service
 
   and 'key registered_service_builder = {
-    meth : Resto.meth ;
+    meth : Method.t ;
     description : Encoding.schema Description.service ;
     builder : 'key -> registered_service Deferred.t ;
   }
@@ -373,7 +374,7 @@ module Make (Encoding : ENCODING) = struct
 
   let lookup
     : type a.
-      a directory -> a -> meth -> string list ->
+      a directory -> a -> Method.t -> string list ->
       (registered_service, lookup_error) result Deferred.t
     = fun dir args meth path ->
       resolve [] dir args path >>= function
@@ -396,7 +397,7 @@ module Make (Encoding : ENCODING) = struct
   let allowed_methods
     : type a.
       a directory -> a -> string list ->
-      (Resto.meth list, lookup_error) result Deferred.t
+      (Method.t list, lookup_error) result Deferred.t
     = fun dir args path ->
       resolve [] dir args path >>= function
       | Error err -> return (Error err)
@@ -496,9 +497,9 @@ module Make (Encoding : ENCODING) = struct
 
   let transparent_lookup =
     ( transparent_lookup
-      : _ -> (Resto.meth, _, _, _, _, _, _) Service.t ->
+      : _ -> (Method.t, _, _, _, _, _, _) Service.t ->
       _ -> _ -> _ -> (_, _) Answer.t Deferred.t
-      :> _ -> ([< Resto.meth ], _, _, _, _, _, _) Service.t ->
+      :> _ -> ([< Method.t ], _, _, _, _, _, _) Service.t ->
       _ -> _ -> _ -> [> (_, _) Answer.t ] Deferred.t)
 
   let rec describe_rpath
@@ -647,9 +648,9 @@ module Make (Encoding : ENCODING) = struct
 
   let register =
     (register
-     : _ -> (Resto.meth, _, _, _, _, _, _) Service.t ->
+     : _ -> (Method.t, _, _, _, _, _, _) Service.t ->
      (_ -> _ -> _ -> (_, _) Answer.t Deferred.t) -> _
-     :> _ -> ([< Resto.meth ], _, _, _, _, _, _) Service.t ->
+     :> _ -> ([< Method.t ], _, _, _, _, _, _) Service.t ->
      (_ -> _ -> _ -> [< (_, _) Answer.t ] Deferred.t) -> _)
 
   let register_dynamic_directory

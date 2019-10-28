@@ -8,24 +8,8 @@
 (*                                                                        *)
 (**************************************************************************)
 
-type meth = [ `GET | `POST | `DELETE | `PUT | `PATCH ]
-
-let string_of_meth = function
-  | `GET -> "GET"
-  | `POST -> "POST"
-  | `DELETE -> "DELETE"
-  | `PUT -> "PUT"
-  | `PATCH -> "PATCH"
-
-let meth_of_string = function
-  | "GET" -> Some `GET
-  | "POST" -> Some `POST
-  | "DELETE" -> Some `DELETE
-  | "PUT" -> Some `PUT
-  | "PATCH" -> Some `PATCH
-  | _ -> None
-
-module MethMap = Map.Make(struct type t = meth let compare = compare end)
+open Httpaf
+module MethMap = Map.Make(struct type t = Method.t let compare = compare end)
 module StringMap = Map.Make(String)
 
 type (_, _) eq = Eq : ('a, 'a) eq
@@ -446,7 +430,7 @@ module Description = struct
   type 'schema service = {
     description: string option ;
     path: path_item list ;
-    meth: meth ;
+    meth: Method.t ;
     query: query_item list ;
     input: 'schema option ;
     output: 'schema ;
@@ -525,9 +509,9 @@ module Description = struct
       begin fun meth s ->
         match s with
         | { description = None ; meth ; _ } ->
-            Format.fprintf ppf "<%s>" (string_of_meth meth)
+            Format.fprintf ppf "<%s>" (Method.to_string meth)
         | { description = Some descr ; meth ; _ } ->
-            Format.fprintf ppf "<%s> : %s" (string_of_meth meth) descr
+            Format.fprintf ppf "<%s> : %s" (Method.to_string meth) descr
       end
       services
 
@@ -563,7 +547,7 @@ module MakeService(Encoding : ENCODING) = struct
       meth : 'meth ;
       path : ('prefix, 'params) path ;
       types : ('query, 'input, 'output, 'error) types ;
-    } constraint 'meth = [< meth ]
+    } constraint 'meth = [< Method.t ]
     let from_service x = x
     let to_service x = x
 
@@ -614,7 +598,7 @@ module MakeService(Encoding : ENCODING) = struct
 
   let patch_service ?description ~query ~input ~output ~error path =
     let input = Input input in
-    { meth = `PATCH ; description ; path ;
+    { meth = `Other "PATCH" ; description ; path ;
       types = { query ; input ; output ; error } }
 
   let prefix path s = { s with path = Path.prefix path s.path }
@@ -663,7 +647,7 @@ module MakeService(Encoding : ENCODING) = struct
       Path.(path /:* Arg.string)
 
   type 'input request = {
-    meth: meth ;
+    meth: Method.t ;
     uri: Uri.t ;
     input: 'input input ;
   }
@@ -727,12 +711,12 @@ module MakeService(Encoding : ENCODING) = struct
 
   let forge_partial_request =
     (forge_partial_request
-     : (meth, _, _, _, _, _, _) service -> _
-     :> ([< meth], _, _, _, _, _, _) service -> _ )
+     : (Method.t, _, _, _, _, _, _) service -> _
+     :> ([< Method.t], _, _, _, _, _, _) service -> _ )
 
   let forge_request =
     (forge_partial_request
-     : (meth, _, _, _, _, _, _) service -> _
-     :> ([< meth], unit, _, _, _, _, _) service -> _ )
+     : (Method.t, _, _, _, _, _, _) service -> _
+     :> ([< Method.t], unit, _, _, _, _, _) service -> _ )
 
 end

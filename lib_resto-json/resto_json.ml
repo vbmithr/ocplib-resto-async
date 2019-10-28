@@ -33,7 +33,7 @@ module Encoding = struct
         "POST", `POST ;
         "DELETE", `DELETE ;
         "PUT", `PUT ;
-        "PATCH", `PATCH ]
+        "PATCH", `Other "PATCH" ]
 
   let path_item_encoding =
     let open Json_encoding in
@@ -120,7 +120,7 @@ module Encoding = struct
            let find s =
              try Some (Resto.MethMap.find s services) with Not_found -> None in
            (find `GET, find `POST, find `DELETE,
-            find `PUT, find `PATCH, subdirs))
+            find `PUT, find (`Other "PATCH"), subdirs))
         (fun (get, post, delete, put, patch, subdirs) ->
            let add meth s services =
              match s with
@@ -132,7 +132,7 @@ module Encoding = struct
              |> add `POST post
              |> add `DELETE delete
              |> add `PUT put
-             |> add `PATCH patch in
+             |> add (`Other "PATCH") patch in
            { services ; subdirs })
         (obj6
            (opt "get_service" service_descr_encoding)

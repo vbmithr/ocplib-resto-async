@@ -8,14 +8,10 @@
 (*                                                                        *)
 (**************************************************************************)
 
-type meth = [ `GET | `POST | `DELETE | `PUT | `PATCH ]
+open Httpaf
 
-val string_of_meth: [< meth ] -> string
-val meth_of_string: string -> [> meth ] option
-
-module MethMap : Map.S with type key = meth
-module StringMap : Map.S with type 'a t = 'a Map.Make(String).t
-                          and type key = string
+module MethMap : Map.S with type key = Method.t
+module StringMap : Map.S with type key = string
 
 type (_, _) eq = Eq : ('a, 'a) eq
 
@@ -100,7 +96,7 @@ module Description : sig
   type 'schema service = {
     description: string option ;
     path: path_item list ;
-    meth: meth ;
+    meth: Method.t ;
     query: query_item list ;
     input: 'schema option ;
     output: 'schema ;
@@ -261,7 +257,7 @@ module MakeService(Encoding : ENCODING) : sig
 
   (** Services. *)
   type (+'meth, 'prefix, 'params, 'query, 'input, 'output, 'error) t
-    constraint 'meth = [< meth ]
+    constraint 'meth = [< Method.t ]
   type (+'meth, 'prefix, 'params, 'query, 'input, 'output, 'error) service =
     ('meth, 'prefix, 'params, 'query, 'input, 'output, 'error) t
 
@@ -322,7 +318,7 @@ module MakeService(Encoding : ENCODING) : sig
     output: 'output Encoding.t ->
     error: 'error Encoding.t ->
     ('prefix, 'params) Path.t ->
-    ([ `PATCH ], 'prefix, 'params, 'query, 'input, 'output, 'error) service
+    ([< Httpaf.Method.t > `Other ], 'prefix, 'params, 'query, 'input, 'output, 'error) service
 
   val put_service:
     ?description: string ->
@@ -341,19 +337,19 @@ module MakeService(Encoding : ENCODING) : sig
      'query, 'input, 'output, 'error) service
 
   val subst0:
-    ([< meth ] as 'm, 'p, 'p, 'q, 'i, 'o, 'e) service ->
+    ([< Method.t ] as 'm, 'p, 'p, 'q, 'i, 'o, 'e) service ->
     ('m, 'p2, 'p2, 'q, 'i, 'o, 'e) service
 
   val subst1:
-    ([< meth ] as 'm, 'p, 'p * 'a, 'q, 'i, 'o, 'e) service ->
+    ([< Method.t ] as 'm, 'p, 'p * 'a, 'q, 'i, 'o, 'e) service ->
     ('m, 'p2, 'p2 * 'a, 'q, 'i, 'o, 'e) service
 
   val subst2:
-    ([< meth ] as 'm, 'p, ('p * 'a) * 'b, 'q, 'i, 'o, 'e) service ->
+    ([< Method.t ] as 'm, 'p, ('p * 'a) * 'b, 'q, 'i, 'o, 'e) service ->
     ('m, 'p2, ('p2 * 'a) * 'b, 'q, 'i, 'o, 'e) service
 
   val subst3:
-    ([< meth ] as 'm, 'p, (('p * 'a) * 'b) * 'c, 'q, 'i, 'o, 'e) service ->
+    ([< Method.t ] as 'm, 'p, (('p * 'a) * 'b) * 'c, 'q, 'i, 'o, 'e) service ->
     ('m, 'p2, (('p2 * 'a) * 'b) * 'c, 'q, 'i, 'o, 'e) service
 
   type ('prefix, 'params, 'error) description_service =
@@ -367,7 +363,7 @@ module MakeService(Encoding : ENCODING) : sig
     ('prefix, 'params, 'error) description_service
 
   type 'input request = {
-    meth: meth ;
+    meth: Method.t ;
     uri: Uri.t ;
     input: 'input input ;
   }
@@ -397,7 +393,7 @@ module MakeService(Encoding : ENCODING) : sig
       meth : 'meth ;
       path : ('prefix, 'params) path ;
       types : ('query, 'input, 'output, 'error) types ;
-    } constraint 'meth = [< meth ]
+    } constraint 'meth = [< Method.t ]
 
     exception Not_equal
     type (_, _) eq =

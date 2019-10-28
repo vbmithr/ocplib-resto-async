@@ -8,12 +8,11 @@
 (*                                                                        *)
 (**************************************************************************)
 
-
+open Httpaf
 open Resto
 module Service = Resto.MakeService(Resto_json.Encoding)
 open Service
 
-type meth = [ `GET | `POST | `DELETE | `PUT | `PATCH ]
 module Arg = Arg
 module Path = struct
   type 'params t = (unit, 'params) Path.path
@@ -36,7 +35,7 @@ type 'input input = 'input Service.input =
   | No_input : unit input
   | Input : 'input Json_encoding.encoding -> 'input input
 type 'input request = 'input Service.request = {
-  meth: meth ;
+  meth: Method.t ;
   uri: Uri.t ;
   input: 'input input ;
 }

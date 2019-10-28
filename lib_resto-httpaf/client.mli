@@ -55,7 +55,7 @@ module Make (Encoding : Resto.ENCODING) : sig
   val full_logger: Logs.src -> logger
 
   val generic_call:
-    [< Resto.meth ] ->
+    Method.t ->
     ?logger:logger ->
     ?headers:Headers.t ->
     ?accept:Media_type.Make(Encoding).t list ->
@@ -75,18 +75,18 @@ module Make (Encoding : Resto.ENCODING) : sig
     ?logger:logger ->
     ?headers:Headers.t ->
     ?base:Uri.t ->
-    ([< Resto.meth ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
-    'p -> 'q -> 'i -> (Resto.meth * Uri.t * ('o, 'e) service_result) Deferred.t
+    ([< Method.t ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
+    'p -> 'q -> 'i -> (Method.t * Uri.t * ('o, 'e) service_result) Deferred.t
 
   val call_streamed_service:
     Media_type.Make(Encoding).t list ->
     ?logger:logger ->
     ?headers:Headers.t ->
     ?base:Uri.t ->
-    ([< Resto.meth ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
+    ([< Method.t ], unit, 'p, 'q, 'i, 'o, 'e) Service.t ->
     on_chunk: ('o -> unit) ->
     on_close: (unit -> unit) ->
     'p -> 'q -> 'i ->
-    (Resto.meth * Uri.t * (unit, 'e) service_result) Deferred.t
+    (Method.t * Uri.t * (unit, 'e) service_result) Deferred.t
 
 end

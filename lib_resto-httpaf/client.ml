@@ -140,16 +140,6 @@ module Make (Encoding : Resto.ENCODING) = struct
       string Deferred.t Lazy.t -> unit Deferred.t ;
   }
 
-  let read_answer_body body =
-    let buf = Bigbuffer.create 512 in
-    let read_done = Ivar.create () in
-    Httpaf.Body.schedule_read body ~on_eof:(Ivar.fill read_done)
-      ~on_read:begin fun b ~off:pos ~len ->
-        Bigbuffer.add_bigstring buf (Bigstring.sub_shared b ~pos ~len)
-      end ;
-    Ivar.read read_done >>| fun () ->
-    Bigbuffer.contents buf
-
   let core_iovecs_of_iovecs iovecs =
     let q = Queue.create () in
     let len = List.fold_left iovecs ~init:0 ~f:begin fun a ({ Faraday.buffer; off=pos; len }) ->
@@ -209,7 +199,7 @@ module Make (Encoding : Resto.ENCODING) = struct
       Ivar.read response_iv >>= fun (response, ansbody) ->
       match response.status with
       | `Bad_gateway ->
-          read_answer_body ansbody >>= fun ansbody ->
+          Utils.read_body ansbody >>= fun ansbody ->
           let delay = delay_f attempt in
           log.log ~media:faked_media Encoding.untyped response.status
             (lazy (Format.kasprintf return
@@ -244,7 +234,7 @@ module Make (Encoding : Resto.ENCODING) = struct
         | `OK -> return (`Ok (Some (ansbody, media_name, media)))
         | `No_content -> return (`Ok None)
         | #Status.t as status ->
-            read_answer_body ansbody >>= fun msg ->
+            Utils.read_body ansbody >>= fun msg ->
             match status with
             | `Created ->
                 (* TODO handle redirection ?? *)
@@ -304,7 +294,7 @@ module Make (Encoding : Resto.ENCODING) = struct
       | None ->
           return (`Unexpected_error_content_type (body, media_name))
       | Some media ->
-          read_answer_body body >>= fun body ->
+          Utils.read_body body >>= fun body ->
           let error = Service.error_encoding service in
           log.log ~media error status (lazy (return body)) >>= fun () ->
           match media.Media_type.destruct error body with
@@ -337,19 +327,11 @@ module Make (Encoding : Resto.ENCODING) = struct
     let log = { log = fun ?media -> Logger.log_response log_request ?media } in
     return (log, meth, uri, body, media)
 
-  let httpaf_meth_of_meth = function
-    | `PATCH -> `Other "PATCH"
-    | `DELETE -> `DELETE
-    | `GET -> `GET
-    | `POST -> `POST
-    | `PUT -> `PUT
-
   let call_service media_types
       ?logger ?headers ?base service params query body =
     prepare media_types ?logger
       ?base service params query body >>= fun (log, meth, uri, body_f, media) ->
-    let req =
-      Request.create ?headers (httpaf_meth_of_meth meth) (Uri.path_and_query uri) in
+    let req = Request.create ?headers meth (Uri.path_and_query uri) in
     begin
       internal_call log ~accept:media_types ?body_f ?media req >>= function
       | `Ok None ->
@@ -360,7 +342,7 @@ module Make (Encoding : Resto.ENCODING) = struct
           | None ->
               return (`Unexpected_content_type (body, media_name))
           | Some media ->
-              read_answer_body body >>= fun body ->
+              Utils.read_body body >>= fun body ->
               let output = Service.output_encoding service in
               log.log ~media output `OK (lazy (return body)) >>= fun () ->
               match media.destruct output body with
@@ -394,8 +376,7 @@ module Make (Encoding : Resto.ENCODING) = struct
       media_types ?logger ?base
       service params query body >>= fun (log, meth, uri, body_f, media) ->
     begin
-      let req =
-        Request.create ?headers (httpaf_meth_of_meth meth) (Uri.path_and_query uri) in
+      let req = Request.create ?headers meth (Uri.path_and_query uri) in
       internal_call log ~accept:media_types ?body_f ?media req >>= function
       | `Ok None ->
           on_close () ;
@@ -453,7 +434,6 @@ module Make (Encoding : Resto.ENCODING) = struct
           Logger.log_request Encoding.untyped uri "<stream>"
     end >>= fun log_request ->
     let log = { log = fun ?media -> Logger.log_response log_request ?media } in
-    let meth = httpaf_meth_of_meth meth in
     let req = Request.create ?headers meth (Uri.path_and_query uri) in
     internal_call log ?accept ?body_f ?media req
 

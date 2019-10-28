@@ -9,6 +9,7 @@
 (**************************************************************************)
 
 open Async_kernel
+open Httpaf
 open Resto
 
 module Answer : sig
@@ -42,7 +43,7 @@ module Make (Encoding : ENCODING) : sig
     | DynamicTail of Arg.descr
 
   type conflict =
-    | CService of meth | CDir | CBuilder | CTail
+    | CService of Method.t | CDir | CBuilder | CTail
     | CTypes of Arg.descr *
                 Arg.descr
     | CType of Arg.descr * string list
@@ -66,18 +67,18 @@ module Make (Encoding : ENCODING) : sig
 
   type lookup_error =
     [ `Not_found (* 404 *)
-    | `Method_not_allowed of meth list (* 405 *)
+    | `Method_not_allowed of Method.t list (* 405 *)
     | `Cannot_parse_path of string list * Arg.descr * string (* 400 *)
     ]
 
   (** Resolve a service. *)
   val lookup:
     'prefix directory -> 'prefix ->
-    meth -> string list -> (registered_service, [> lookup_error ]) result Deferred.t
+    Method.t -> string list -> (registered_service, [> lookup_error ]) result Deferred.t
 
   val allowed_methods:
     'prefix directory -> 'prefix -> string list ->
-    (meth list, [> lookup_error ]) result Deferred.t
+    (Method.t list, [> lookup_error ]) result Deferred.t
 
   val transparent_lookup:
     'prefix directory ->

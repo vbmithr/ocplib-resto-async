@@ -8,7 +8,7 @@
 (*                                                                        *)
 (**************************************************************************)
 
-type meth = [ `GET | `POST | `DELETE | `PUT | `PATCH ]
+open Httpaf
 
 (** Typed path argument. *)
 module Arg : sig
@@ -122,14 +122,14 @@ val patch_service:
   output: 'output Json_encoding.encoding ->
   error: 'error Json_encoding.encoding ->
   'params Path.t ->
-  ([ `PATCH ], 'params, 'query, 'input, 'output, 'error) service
+  ([< Httpaf.Method.t > `Other ], 'params, 'query, 'input, 'output, 'error) service
 
 type 'input input =
   | No_input : unit input
   | Input : 'input Json_encoding.encoding -> 'input input
 
 type 'input request = {
-  meth: meth ;
+  meth: Method.t ;
   uri: Uri.t ;
   input: 'input input ;
 }

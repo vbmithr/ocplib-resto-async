@@ -9,6 +9,7 @@
 (**************************************************************************)
 
 open Async_kernel
+open Httpaf
 open Resto
 
 open Resto_directory
@@ -23,7 +24,7 @@ type step = Directory.step =
   | DynamicTail of Arg.descr
 
 type conflict = Directory.conflict =
-  | CService of meth | CDir | CBuilder | CTail
+  | CService of Method.t | CDir | CBuilder | CTail
   | CTypes of Arg.descr * Arg.descr
   | CType of Arg.descr * string list
 

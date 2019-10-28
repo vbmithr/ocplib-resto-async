@@ -2,5 +2,5 @@
  (name resto)
  (public_name ocplib-resto)
  (flags (-w -30 -safe-string))
- (libraries uri)
+ (libraries uri httpaf)
  (wrapped false))
