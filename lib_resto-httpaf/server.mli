@@ -13,20 +13,15 @@
 open Async
 
 module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) : sig
-
-  (** A handle on the server worker. *)
-  type ('a, 'listening_on) server
-    constraint 'a = [< Async_unix.Socket.Address.t ]
-
-  (** Promise a running RPC server.*)
   val launch :
     ?max_connections:int ->
     ?max_accepts_per_batch:int ->
     ?backlog:int ->
-    ?socket:([ `Unconnected ], [< Socket.Address.t ] as 'b) Socket.t ->
+    ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t ->
+    ?config:Httpaf.Config.t ->
     ?cors:Cors.t ->
     media_types:Media_type.Make(Encoding).t list ->
     unit Resto_directory.Make(Encoding).t ->
-    (Socket.Address.t, 'listening_on) Tcp.Where_to_listen.t ->
-    (Socket.Address.t, 'listening_on) server Deferred.t
+    (Socket.Address.Inet.t, 'listening_on) Tcp.Where_to_listen.t ->
+    (Socket.Address.Inet.t, 'listening_on) Tcp.Server.t Deferred.t
 end
