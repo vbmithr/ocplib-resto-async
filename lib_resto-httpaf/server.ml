@@ -76,19 +76,19 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
         | None -> return (Error `Not_acceptable)
         | Some media_type -> Deferred.Result.return media_type
 
-  let get_path reqd =
+  let get_path reqd addr =
     let req = Reqd.request reqd in
     (* FIXME: check inbound adress *)
     let uri = Uri.of_string req.target in
     let path = Uri.pct_decode (Uri.path uri) in
-    (* Log.info begin fun m ->
-     *   m "(%a) receive request to %s" pp_print_addr addr path
-     * end >>| fun () -> *)
+    Log.info begin fun m ->
+      m "(%a) received request to %s" pp_print_addr addr path
+    end >>| fun () ->
     Utils.split_path path
 
   let handle_most state addr reqd =
     let req = Reqd.request reqd in
-    let path = get_path reqd in
+    get_path reqd addr >>= fun path ->
     Directory.lookup state.root () req.meth path >>=? fun (Directory.Service s) ->
     get_input_media_type state req >>=? fun input_media_type ->
     Log.debug (fun m -> m "(%a) input media type %s" pp_print_addr
@@ -148,7 +148,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
 
   let handle_options state addr reqd =
     let { Request.headers; _ } = Reqd.request reqd in
-    let path = get_path reqd in
+    get_path reqd addr >>= fun path ->
     let origin_header = Headers.get headers "origin" in
     begin
       (* Default OPTIONS handler for CORS preflight *)

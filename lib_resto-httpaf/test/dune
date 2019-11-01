@@ -1,0 +1,14 @@
+(executable
+ (name server)
+ (public_name ocplib-resto-testserver)
+ (package ocplib-resto-httpaf)
+ (preprocess (pps ppx_jane))
+ (libraries
+   core
+   async
+   logs
+   logs-async-reporter
+   ptime
+   ocplib-json-typed
+   ezjsonm
+   resto_httpaf))
