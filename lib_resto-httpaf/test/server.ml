@@ -1,6 +1,7 @@
 open Core
 open Async
 
+open Resto
 open Resto_httpaf
 
 let log = Logs.Src.create "resto-httpaf.test"
@@ -66,10 +67,24 @@ module MediaType = struct
 end
 
 module Directory = Resto_directory.Make(Encoding)
+module Service = Directory.Service
 module Srv = Server.Make(Encoding)(Log)
 
+let test =
+  Service.get_service
+    ~description:"test"
+    ~query:Query.empty
+    ~output:Json_encoding.empty
+    ~error:Json_encoding.empty
+    Path.root
+
+let dir =
+  let open Directory in
+  register0 empty test
+    (fun () () -> Deferred.return (`Ok ()))
+
 let main port =
-  Srv.launch ~media_types:[MediaType.json] Directory.empty
+  Srv.launch ~media_types:[MediaType.json] dir
     (Tcp.Where_to_listen.of_port port) >>= fun _srv ->
   Log.debug
     (fun m -> m "Server launched on port %d" port) >>= fun () ->

@@ -86,6 +86,12 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     end >>| fun () ->
     Utils.split_path path
 
+  let respond_close ?(headers=Headers.empty) reqd status fmt =
+    let headers = Headers.add headers "Connection" "close" in
+    Format.ksprintf
+      (Reqd.respond_with_string reqd
+         (Response.create ~headers status)) fmt
+
   let handle_most state addr reqd =
     let req = Reqd.request reqd in
     get_path reqd addr >>= fun path ->
@@ -118,32 +124,27 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
           | Ok body -> Deferred.ok (s.handler query body)
     end >>|? function
     | `Ok o ->
-        Reqd.respond_with_string reqd (Response.create ~headers `OK) (output o)
+        respond_close ~headers reqd `OK "%s" (output o)
     | `OkPipe o ->
         let body = create_pipe state addr output o in
         let b = Reqd.respond_with_streaming reqd (Response.create ~headers `OK) in
         don't_wait_for (Pipe.iter_without_pushback body ~f:(Body.write_string b))
     | `Created loc ->
-        let headers =
-          Option.value_map loc ~default:headers ~f:(Headers.add headers "location") in
-        Reqd.respond_with_string reqd (Response.create ~headers `Created) ""
+        let headers = Option.value_map loc ~default:headers
+            ~f:(Headers.add headers "location") in
+        respond_close ~headers reqd `Created ""
     | `No_content ->
-        Reqd.respond_with_string reqd (Response.create `No_content) ""
+        respond_close reqd `No_content ""
     | `Unauthorized (Some e) ->
-        Reqd.respond_with_string
-          reqd (Response.create ~headers `Unauthorized) (error e)
+        respond_close ~headers reqd `Unauthorized "%s" (error e)
     | `Forbidden (Some e) ->
-        Reqd.respond_with_string
-          reqd (Response.create ~headers `Forbidden) (error e)
+        respond_close ~headers reqd `Forbidden "%s" (error e)
     | `Not_found (Some e) ->
-        Reqd.respond_with_string
-          reqd (Response.create ~headers `Not_found) (error e)
+        respond_close ~headers reqd `Not_found "%s" (error e)
     | `Conflict (Some e) ->
-        Reqd.respond_with_string
-          reqd (Response.create ~headers `Conflict) (error e)
+        respond_close ~headers reqd `Conflict "%s" (error e)
     | `Error (Some e) ->
-        Reqd.respond_with_string
-          reqd (Response.create ~headers `Internal_server_error) (error e)
+        respond_close ~headers reqd `Internal_server_error "%s" (error e)
     | _ -> assert false
 
   let handle_options state addr reqd =
@@ -173,12 +174,8 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     let headers = Cors.add_headers headers state.cors origin_header in
     Deferred.Result.return (Reqd.respond_with_string reqd (Response.create ~headers `OK) "")
 
-  let respond_close ?(headers=Headers.empty) reqd status fmt =
-    let headers = Headers.(add_list headers ["Content-Type", "text/plain";
-                                             "Connection", "close"]) in
-    Format.ksprintf
-      (Reqd.respond_with_string reqd
-         (Response.create ~headers status)) fmt
+  let text_plain =
+    Headers.(add empty "content-type" "text/plain")
 
   let request_handler_exn state addr reqd =
     let req = Reqd.request reqd in
@@ -197,18 +194,18 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
           Headers.(add_multi empty ["allow", List.map ~f:Method.to_string methods]) in
         respond_close ~headers reqd `Method_not_allowed ""
     | Error `Cannot_parse_path (context, arg, value) ->
-        respond_close reqd `Bad_request
+        respond_close ~headers:text_plain reqd `Bad_request
           "Failed to parsed an argument in path. After \"%s\", \
            the value \"%s\" is not acceptable for type \"%s\""
           (String.concat ~sep:"/" context) value arg.Resto.Arg.name
     | Error `Cannot_parse_body s ->
-        respond_close
+        respond_close ~headers:text_plain
           reqd `Bad_request "Failed to parse the request body: %s" s
     | Error `Cannot_parse_query s ->
-        respond_close
+        respond_close ~headers:text_plain
           reqd `Bad_request "Failed to parse the query string: %s" s
     | Error `Not_acceptable ->
-        respond_close reqd `Not_acceptable
+        respond_close ~headers:text_plain reqd `Not_acceptable
           "%s" (Media_type.acceptable_encoding state.media_types)
     | Error `Unsupported_media_type _ ->
         respond_close reqd `Unsupported_media_type ""
