@@ -173,49 +173,53 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     let headers = Cors.add_headers headers state.cors origin_header in
     Deferred.Result.return (Reqd.respond_with_string reqd (Response.create ~headers `OK) "")
 
-  let bad_request reqd fmt =
-    let headers = Headers.(add empty "content-type" "text/plain") in
+  let respond_close ?(headers=Headers.empty) reqd status fmt =
+    let headers = Headers.(add_list headers ["Content-Type", "text/plain";
+                                             "Connection", "close"]) in
     Format.ksprintf
       (Reqd.respond_with_string reqd
-         (Response.create ~headers `Bad_request)) fmt
+         (Response.create ~headers status)) fmt
 
   let request_handler_exn state addr reqd =
     let req = Reqd.request reqd in
     begin match req.meth with
       | `OPTIONS -> handle_options state addr reqd
-      | `DELETE | `GET | `POST | `PUT | `Other "PATCH" -> handle_most state addr reqd
+      | `DELETE | `GET | `POST | `PUT | `Other "PATCH" ->
+          handle_most state addr reqd
       | `HEAD -> return (Error `Not_implemented)
       | _ -> return (Error `Not_implemented)
     end >>| function
     | Ok () -> ()
     | Error `Not_implemented ->
-        Reqd.respond_with_string reqd (Response.create `Not_implemented) ""
+        respond_close reqd `Not_implemented ""
     | Error `Method_not_allowed methods ->
         let headers =
           Headers.(add_multi empty ["allow", List.map ~f:Method.to_string methods]) in
-        Reqd.respond_with_string reqd (Response.create ~headers `Method_not_allowed) ""
+        respond_close ~headers reqd `Method_not_allowed ""
     | Error `Cannot_parse_path (context, arg, value) ->
-        bad_request reqd
+        respond_close reqd `Bad_request
           "Failed to parsed an argument in path. After \"%s\", \
            the value \"%s\" is not acceptable for type \"%s\""
           (String.concat ~sep:"/" context) value arg.Resto.Arg.name
     | Error `Cannot_parse_body s ->
-        bad_request reqd "Failed to parse the request body: %s" s
+        respond_close
+          reqd `Bad_request "Failed to parse the request body: %s" s
     | Error `Cannot_parse_query s ->
-        bad_request reqd "Failed to parse the query string: %s" s
+        respond_close
+          reqd `Bad_request "Failed to parse the query string: %s" s
     | Error `Not_acceptable ->
-        Reqd.respond_with_string reqd
-          (Response.create `Not_acceptable)
-          (Media_type.acceptable_encoding state.media_types)
+        respond_close reqd `Not_acceptable
+          "%s" (Media_type.acceptable_encoding state.media_types)
     | Error `Unsupported_media_type _ ->
-        Reqd.respond_with_string reqd (Response.create `Unsupported_media_type) ""
+        respond_close reqd `Unsupported_media_type ""
     | Error `Not_found ->
-        Reqd.respond_with_string reqd (Response.create `Not_found) ""
+        respond_close reqd `Not_found ""
 
   let request_handler state addr reqd =
     don't_wait_for begin
-      Monitor.try_with ~extract_exn:true
-        (fun () -> request_handler_exn state addr reqd) >>= function
+      Monitor.try_with ~extract_exn:true begin fun () ->
+        request_handler_exn state addr reqd
+      end >>= function
       | Ok r -> return r
       | Error exn ->
           Reqd.report_exn reqd exn ;
