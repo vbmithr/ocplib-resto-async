@@ -126,9 +126,23 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     | `Ok o ->
         respond_close ~headers reqd `OK "%s" (output o)
     | `OkPipe o ->
+        let headers = Headers.add headers "transfer-encoding" "chunked" in
         let body = create_pipe state addr output o in
         let b = Reqd.respond_with_streaming reqd (Response.create ~headers `OK) in
-        don't_wait_for (Pipe.iter_without_pushback body ~f:(Body.write_string b))
+        let conn_monitor = Monitor.create () in
+        Monitor.detach_and_iter_errors conn_monitor ~f:begin fun exn ->
+          Pipe.close_read body ;
+          Reqd.report_exn reqd exn
+        end ;
+        Scheduler.within ~monitor:conn_monitor begin fun () ->
+          Pipe.iter_without_pushback body
+            ~continue_on_error:false
+            ~f:begin fun chunk ->
+              Body.write_string b chunk;
+              Body.flush b (fun () -> ())
+            end >>> fun () ->
+          Body.close_writer b
+        end
     | `Created loc ->
         let headers = Option.value_map loc ~default:headers
             ~f:(Headers.add headers "location") in
@@ -185,7 +199,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
           handle_most state addr reqd
       | `HEAD -> return (Error `Not_implemented)
       | _ -> return (Error `Not_implemented)
-    end >>| function
+    end >>> function
     | Ok () -> ()
     | Error `Not_implemented ->
         respond_close reqd `Not_implemented ""
@@ -212,15 +226,15 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     | Error `Not_found ->
         respond_close reqd `Not_found ""
 
+  let cleanup_connection state addr =
+    Option.iter ~f:Pipe.close_read (AddressMap.find state.streams addr) ;
+    state.streams <- AddressMap.remove state.streams addr
+
   let request_handler state addr reqd =
-    don't_wait_for begin
-      Monitor.try_with ~extract_exn:true begin fun () ->
-        request_handler_exn state addr reqd
-      end >>= function
-      | Ok r -> return r
-      | Error exn ->
-          Reqd.report_exn reqd exn ;
-          Deferred.unit
+    let monitor = Monitor.create () in
+    Monitor.detach_and_iter_errors monitor ~f:(Reqd.report_exn reqd) ;
+    Scheduler.within ~monitor begin fun () ->
+      request_handler_exn state addr reqd
     end
 
   let error_handler _addr ?request:_ _err _f =
@@ -255,12 +269,10 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
       default_media_type ;
     } in
     let on_handler_error addr exn =
-      don't_wait_for begin
-        Log.info begin fun m ->
-          m "(%a) connection closed (%a)" pp_print_addr addr Exn.pp exn
-        end >>| fun () ->
-        Option.iter ~f:Pipe.close_read (AddressMap.find t.streams addr)
-      end
+      Log.info begin fun m ->
+        m "(%a) connection closed (%a)" pp_print_addr addr Exn.pp exn
+      end >>> fun () ->
+      cleanup_connection t addr
       (* and on_exn = function
        *   | Unix.Unix_error (Unix.EADDRINUSE, "bind", _) ->
        *       log_error "RPC server port already taken, \
@@ -276,7 +288,8 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
       Httpaf_async.Server.create_connection_handler
         ?config
         ~request_handler:(request_handler t)
-        ~error_handler addr s
+        ~error_handler addr s >>| fun () ->
+      cleanup_connection t addr
     end
 
 end

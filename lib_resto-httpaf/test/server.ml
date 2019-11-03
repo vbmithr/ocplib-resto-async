@@ -78,10 +78,29 @@ let test =
     ~error:Json_encoding.empty
     Path.root
 
+let streaming =
+  Service.get_service
+    ~description:"test_streaming"
+    ~query:Query.empty
+    ~output:Json_encoding.empty
+    ~error:Json_encoding.empty
+    Path.(root / "streaming")
+
 let dir =
   let open Directory in
-  register0 empty test
-    (fun () () -> Deferred.return (`Ok ()))
+  register0 empty test (fun () () -> Deferred.return (`Ok ())) |> fun a ->
+  register0 a streaming begin fun () () ->
+    let r = Pipe.create_reader ~close_on_exception:false begin fun w ->
+        let rec loop = function
+          | 0 -> Deferred.unit
+          | n ->
+              Pipe.write w () >>= fun () ->
+              Clock_ns.after (Time_ns.Span.of_int_ms 300) >>= fun () ->
+              loop (pred n) in
+        loop 5
+      end in
+    Deferred.return (`OkPipe r)
+  end
 
 let main port =
   Srv.launch ~media_types:[MediaType.json] dir
