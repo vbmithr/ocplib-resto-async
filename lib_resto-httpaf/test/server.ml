@@ -78,6 +78,14 @@ let test =
     ~error:Json_encoding.empty
     Path.root
 
+let test_exn =
+  Service.get_service
+    ~description:"test_exn"
+    ~query:Query.empty
+    ~output:Json_encoding.empty
+    ~error:Json_encoding.empty
+    Path.(root / "exn")
+
 let streaming =
   Service.get_service
     ~description:"test_streaming"
@@ -89,6 +97,7 @@ let streaming =
 let dir =
   let open Directory in
   register0 empty test (fun () () -> Deferred.return (`Ok ())) |> fun a ->
+  register0 a test_exn (fun () () -> raise Exit) |> fun a ->
   register0 a streaming begin fun () () ->
     let r = Pipe.create_reader ~close_on_exception:false begin fun w ->
         let rec loop = function

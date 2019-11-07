@@ -34,9 +34,7 @@ module AddressMap = Map.Make(Socket.Address.Inet.Blocking_sexp)
 module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
 
   open Httpaf
-  module Service = Resto.MakeService(Encoding)
   module Directory = Resto_directory.Make(Encoding)
-
   module Media_type = Media_type.Make(Encoding)
 
   type state = {
@@ -116,8 +114,8 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
       Cors.add_allow_origin headers state.cors (Headers.get headers "origin") in
     begin
       match s.types.input with
-      | Service.No_input -> Deferred.ok (s.handler query ())
-      | Service.Input input ->
+      | Directory.Service.No_input -> Deferred.ok (s.handler query ())
+      | Directory.Service.Input input ->
           Utils.read_body (Reqd.request_body reqd) >>= fun body ->
           match input_media_type.destruct input body with
           | Error s -> return (Error (`Cannot_parse_body s))
@@ -191,7 +189,7 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
   let text_plain =
     Headers.(add empty "content-type" "text/plain")
 
-  let request_handler_exn state addr reqd =
+  let request_handler state addr reqd =
     let req = Reqd.request reqd in
     begin match req.meth with
       | `OPTIONS -> handle_options state addr reqd
@@ -230,26 +228,24 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     Option.iter ~f:Pipe.close_read (AddressMap.find state.streams addr) ;
     state.streams <- AddressMap.remove state.streams addr
 
-  let request_handler state addr reqd =
-    let monitor = Monitor.create () in
-    Monitor.detach_and_iter_errors monitor ~f:(Reqd.report_exn reqd) ;
-    Scheduler.within ~monitor begin fun () ->
-      request_handler_exn state addr reqd
-    end
-
-  let error_handler _addr ?request:_ _err _f =
+  let error_handler _addr ?request:_ err f =
+    match err with
     (* | Error Not_found ->
-       *     let status = `Not_found in
-       *     let body = Cohttp_async.Body.empty in
-       *     return (Response.make ~status (), body)
-       * | Error exn ->
-       *     let headers = Header.init () in
-       *     let headers =
-       *       Header.add headers "content-type" "text/ocaml.exception" in
-       *     let status = `Internal_server_error in
-       *     let body = Cohttp_async.Body.of_string (Printexc.to_string exn) in
-       *     return (Response.make ~status ~headers (), body) *)
-    assert false
+     *     let status = `Not_found in
+     *     let body = Cohttp_async.Body.empty in
+     *     return (Response.make ~status (), body) *)
+    | `Internal_server_error
+    | `Bad_gateway
+    | `Bad_request -> assert false
+    | `Exn exn ->
+        let msg = Exn.to_string exn in
+        let headers = Headers.of_list [
+            "content-length", Int.to_string (String.length msg);
+            "content-type", "text/ocaml.exception";
+          ] in
+        let b = f headers in
+        Body.write_string b msg ;
+        Body.close_writer b
 
   let launch
       ?max_connections ?max_accepts_per_batch

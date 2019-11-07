@@ -13,6 +13,8 @@
 open Async
 
 module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) : sig
+  module Directory : module type of Resto_directory.Make(Encoding)
+  module Media_type : module type of Media_type.Make(Encoding)
   val launch :
     ?max_connections:int ->
     ?max_accepts_per_batch:int ->
@@ -20,8 +22,8 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) : sig
     ?socket:([ `Unconnected ], Socket.Address.Inet.t) Socket.t ->
     ?config:Httpaf.Config.t ->
     ?cors:Cors.t ->
-    media_types:Media_type.Make(Encoding).t list ->
-    unit Resto_directory.Make(Encoding).t ->
+    media_types:Media_type.t list ->
+    unit Directory.t ->
     (Socket.Address.Inet.t, 'listening_on) Tcp.Where_to_listen.t ->
     (Socket.Address.Inet.t, 'listening_on) Tcp.Server.t Deferred.t
 end
