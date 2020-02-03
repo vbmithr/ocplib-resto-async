@@ -165,9 +165,9 @@ module Make (Encoding : Resto.ENCODING) (Log : Logs_async.LOG) = struct
     let origin_header = Headers.get headers "origin" in
     begin
       (* Default OPTIONS handler for CORS preflight *)
-      if origin_header = None then
-        Directory.allowed_methods state.root () path
-      else
+      match origin_header with
+      | None -> Directory.allowed_methods state.root () path
+      | Some _ ->
         match Headers.get headers
                 "Access-Control-Request-Method" with
         | None ->

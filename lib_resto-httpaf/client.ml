@@ -243,11 +243,12 @@ module Make (Encoding : Resto.ENCODING) = struct
             | `Forbidden -> return (`Forbidden (ansbody, media_name, media))
             | `Not_found -> return (`Not_found (ansbody, media_name, media))
             | `Conflict -> return (`Conflict (ansbody, media_name, media))
-            | `Internal_server_error ->
-                if media_name = Some ("text", "ocaml.exception") then
-                  return (`OCaml_exception msg)
-                else
-                  return (`Error (ansbody, media_name, media))
+            | `Internal_server_error -> begin
+                match media_name with
+                | Some ("text", "ocaml.exception") ->
+                    return (`OCaml_exception msg)
+                | _ -> return (`Error (ansbody, media_name, media))
+              end
             | `Method_not_allowed ->
                 let allowed = Headers.get_multi headers "accept" in
                 return (`Method_not_allowed allowed)
@@ -257,7 +258,9 @@ module Make (Encoding : Resto.ENCODING) = struct
 
   let fold_hdrs header value headers =
     let header = String.lowercase header in
-    if header <> "host" && (String.length header < 2 || String.sub header ~pos:0 ~len:2 <> "x-") then
+    if not (String.equal header "host") &&
+       (String.length header < 2 ||
+        not String.(equal (sub header ~pos:0 ~len:2) "x-")) then
       invalid_arg
         "Resto_cohttp.Client.call: \
          only headers \"host\" or starting with \"x-\" are supported" ;
