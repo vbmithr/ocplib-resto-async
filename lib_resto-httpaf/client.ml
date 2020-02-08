@@ -178,7 +178,7 @@ module Make (Encoding : Resto.ENCODING) = struct
     let wrbody, conn =
       Client_connection.request ?config req ~error_handler ~response_handler in
     don't_wait_for @@ Async_uri.with_connection
-      (Uri.of_string req.Request.target) begin fun _sock _tls r w ->
+      (Uri.of_string req.Request.target) begin fun { r; w; _ } ->
       flush_req conn w ;
       read_response conn r
     end ;
