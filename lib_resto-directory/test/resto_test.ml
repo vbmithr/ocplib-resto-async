@@ -135,10 +135,13 @@ module Transparent = Test(struct
     let request x = transparent_lookup dir x
   end)
 
-let () =
-  Alcotest.run "resto-directory" [
+let main () =
+  Alcotest_async.run "resto-directory" [
     "basic", basic ;
     "faked", Faked.tests ;
     "transparent", Transparent.tests ;
   ]
 
+let () =
+  don't_wait_for (main ()) ;
+  Core_kernel.never_returns (Scheduler.go ())
